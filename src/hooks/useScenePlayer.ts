@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import type { Scene } from '../lessons/types'
+import { useAudioSettings } from '../audio/settings'
 
 /**
- * Lecteur de scènes. Chaque scène est une fonction pure de `progress` (0 → 1) ;
- * GSAP fait avancer `progress` dans le temps. Lecture, pause, reprise, recherche
- * et vitesse se résument donc à piloter une seule valeur.
+ * Lecteur de scènes. Chaque scène est une fonction pure de `progress` (0 → 1).
  *
- * Audio : si `scene.audioSrc` est défini, le MP3 est joué en parallèle et sa durée
- * remplace `scene.duration` (voir useNarrationAudio ci-dessous).
+ * Horloge :
+ *  - scène AVEC audio (`audioSrc` chargé) : le MP3 est l'horloge maître. `progress` est lu
+ *    en continu sur `audio.currentTime / audio.duration` ; animation, sous-titres et bulles
+ *    ne peuvent donc plus dériver par rapport à la voix (démarrage, mise en mémoire tampon…).
+ *  - scène SANS audio (ou fichier absent) : GSAP fait avancer `progress` avec la durée simulée.
  */
 export function useScenePlayer(scenes: Scene[], initialIndex = 0) {
   const [index, setIndex] = useState(() => Math.min(Math.max(0, initialIndex), scenes.length - 1))
@@ -19,7 +21,24 @@ export function useScenePlayer(scenes: Scene[], initialIndex = 0) {
   const [tick, setTick] = useState(0)
   const proxy = useRef({ p: 0 })
   const scene = scenes[index]
-  const { duration } = useNarrationAudio(scene, playing, speed, tick, proxy)
+  const { narrationVolume } = useAudioSettings()
+
+  // --- audio de la scène courante ---
+  const audio = useRef<HTMLAudioElement | null>(null)
+  const [audioDuration, setAudioDuration] = useState<number | null>(null)
+  useEffect(() => {
+    setAudioDuration(null)
+    audio.current = null
+    if (!scene.audioSrc) return
+    const a = new Audio(scene.audioSrc)
+    a.preload = 'auto'
+    a.onloadedmetadata = () => { if (Number.isFinite(a.duration) && a.duration > 1) { audio.current = a; setAudioDuration(a.duration) } }
+    // fichier absent ou illisible : la scène continue avec sa durée simulée, sans son
+    a.onerror = () => { audio.current = null; setAudioDuration(null) }
+    return () => { a.pause(); a.onloadedmetadata = null; a.onerror = null; audio.current = null }
+  }, [scene.audioSrc])
+  const duration = audioDuration ?? scene.duration
+  useEffect(() => { if (audio.current) audio.current.volume = narrationVolume }, [narrationVolume, audioDuration])
 
   const seek = useCallback((p: number) => {
     proxy.current.p = p
@@ -36,20 +55,42 @@ export function useScenePlayer(scenes: Scene[], initialIndex = 0) {
   }, [scenes.length])
 
   useEffect(() => {
-    if (!playing) return
+    const a = audio.current
+    if (!playing) { a?.pause(); return }
     if (proxy.current.p >= 1) proxy.current.p = 0
+    const finish = () => {
+      if (autoNext && index < scenes.length - 1) goTo(index + 1, true)
+      else setPlaying(false)
+    }
+
+    if (a && audioDuration) {
+      // horloge = audio
+      a.playbackRate = speed
+      a.volume = narrationVolume
+      a.currentTime = proxy.current.p * audioDuration
+      a.play().catch(() => setPlaying(false)) // lecture refusée par le navigateur
+      let raf = 0
+      const loop = () => {
+        const p = Math.min(1, a.currentTime / audioDuration)
+        proxy.current.p = p
+        setProgress(p)
+        if (a.ended || p >= 1) { proxy.current.p = 1; setProgress(1); finish(); return }
+        raf = requestAnimationFrame(loop)
+      }
+      raf = requestAnimationFrame(loop)
+      return () => { cancelAnimationFrame(raf); a.pause() }
+    }
+
+    // horloge = GSAP (durée simulée)
     const tw = gsap.to(proxy.current, {
       p: 1,
-      duration: Math.max(0.01, ((1 - proxy.current.p) * duration) / speed),
+      duration: Math.max(0.01, ((1 - proxy.current.p) * scene.duration) / speed),
       ease: 'none',
       onUpdate: () => setProgress(proxy.current.p),
-      onComplete: () => {
-        if (autoNext && index < scenes.length - 1) goTo(index + 1, true)
-        else setPlaying(false)
-      },
+      onComplete: finish,
     })
     return () => { tw.kill() }
-  }, [playing, speed, index, tick, duration, autoNext, goTo, scenes.length])
+  }, [playing, speed, index, tick, audioDuration, scene.duration, autoNext, goTo, scenes.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = useCallback(() => {
     if (!playing && proxy.current.p >= 1 && index === scenes.length - 1) seek(0)
@@ -59,39 +100,9 @@ export function useScenePlayer(scenes: Scene[], initialIndex = 0) {
   const restart = useCallback(() => { seek(0); setPlaying(true) }, [seek])
 
   return {
-    index, scene, progress, playing, speed, autoNext, duration,
+    index, scene, progress, playing, speed, autoNext, duration, tick,
     setSpeed, setAutoNext, seek, goTo, toggle, restart, pause: () => setPlaying(false),
     next: () => goTo(index + 1, playing),
     prev: () => (progress > 0.08 ? restart() : goTo(index - 1, playing)),
   }
-}
-
-/** Joue le MP3 de la scène (s'il existe) en phase avec l'animation. Sans audio : no-op. */
-function useNarrationAudio(scene: Scene, playing: boolean, speed: number, tick: number, proxy: { current: { p: number } }) {
-  const audio = useRef<HTMLAudioElement | null>(null)
-  const [audioDuration, setAudioDuration] = useState<number | null>(null)
-
-  useEffect(() => {
-    setAudioDuration(null)
-    if (!scene.audioSrc) { audio.current = null; return }
-    const a = new Audio(scene.audioSrc)
-    a.preload = 'auto'
-    a.onloadedmetadata = () => { if (Number.isFinite(a.duration) && a.duration > 1) setAudioDuration(a.duration) }
-    // fichier absent ou illisible : la scène continue avec sa durée simulée, sans son
-    a.onerror = () => { audio.current = null; setAudioDuration(null) }
-    audio.current = a
-    return () => { a.pause(); audio.current = null }
-  }, [scene.audioSrc])
-
-  useEffect(() => {
-    const a = audio.current
-    if (!a) return
-    a.playbackRate = speed
-    if (playing) {
-      if (Number.isFinite(a.duration)) a.currentTime = proxy.current.p * a.duration
-      a.play().catch(() => { /* lecture bloquée par le navigateur */ })
-    } else a.pause()
-  }, [playing, speed, tick, proxy])
-
-  return { duration: audioDuration ?? scene.duration }
 }

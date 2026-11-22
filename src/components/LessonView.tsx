@@ -1,10 +1,13 @@
-import { Suspense, useEffect, useLayoutEffect, useRef, useState, useTransition } from 'react'
+import { Suspense, useEffect, useMemo, useLayoutEffect, useRef, useState, useTransition } from 'react'
 import gsap from 'gsap'
 import { Captions as CaptionsIcon, ChevronRight, FileText, Pause, Play, RotateCcw, SkipBack, SkipForward, X } from 'lucide-react'
 import { useScenePlayer } from '../hooks/useScenePlayer'
 import { markVisited, useVisited } from '../lib/progress'
 import type { Lesson } from '../lessons/types'
 import { Captions } from './Captions'
+import { buildTimeline } from '../lib/narration'
+import { useSoundCues } from '../hooks/useSoundCues'
+import { SoundMenu } from './SoundMenu'
 import { FolderButton } from './FolderButton'
 import { type Mode, ModeSwitch } from './ModeSwitch'
 import { d, soften } from '../lib/motion'
@@ -27,8 +30,16 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
   const scenes = lesson.scenes
 
   const overall = Math.min(1, (index + progress) / scenes.length)
-  const beats = scene.beats ?? []
-  const beat = [...beats].reverse().find((b) => progress >= b.at) ?? beats[0]
+  // rythme de la narration : estimé, corrigé par les repères mesurés (scene.sync)
+  const timeline = useMemo(() => buildTimeline(scene.narration, player.duration, scene.sync), [scene, player.duration])
+  // effets sonores : positions résolues sur la voix (on) ou la progression (at), déclenchés au franchissement
+  const cues = useMemo(() => {
+    const raw = typeof scene.cues === 'function' ? scene.cues(timeline.phraseStart) : scene.cues ?? []
+    return raw.map((c) => ({ ...c, pos: (c.on && timeline.phraseStart(c.on)) || c.at || 0 }))
+  }, [scene, timeline])
+  useSoundCues(cues, { progress, playing, tick: player.tick, index, speed: player.speed })
+  const beats = (scene.beats ?? []).map((b) => ({ ...b, pos: (b.on && timeline.phraseStart(b.on)) || b.at || 0 }))
+  const beat = [...beats].reverse().find((b) => progress >= b.pos) ?? beats[0]
 
   useEffect(() => { writeSession({ lesson: lesson.id, mode, scene: index }) }, [lesson.id, mode, index])
   useEffect(() => { if (progress > 0.85) markVisited(lesson.id, index) }, [progress, index, lesson.id])
@@ -87,6 +98,7 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
         <div className="flex-1" />
         {mode === 'explain' && (
           <div className="flex gap-1.5">
+            <SoundMenu />
             <button className="icon-btn" data-active={captions} onClick={() => setCaptions((c) => !c)} aria-label="Sous-titres" title="Sous-titres"><CaptionsIcon size={18} /></button>
             <button className="icon-btn" data-active={transcript} onClick={() => setTranscript((c) => !c)} aria-label="Texte de narration" title="Texte de narration"><FileText size={18} /></button>
           </div>
@@ -109,13 +121,13 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
               <div ref={stageBody} className="relative min-h-0 flex-1 px-4 py-2 sm:px-8">
                 {/* sur petit écran la scène garde une largeur lisible et se fait défiler horizontalement */}
                 <div className="scroll-thin h-full overflow-auto">
-                  <div className="h-full min-w-[640px] sm:min-w-0">{scene.render({ progress, playing, actions: { goExplore } })}</div>
+                  <div className="h-full min-w-[640px] sm:min-w-0">{scene.render({ progress, playing, at: timeline.phraseStart, actions: { goExplore } })}</div>
                 </div>
               </div>
 
               <div className="flex min-h-[92px] flex-col items-center justify-end gap-2.5 px-5 pb-4 sm:px-8 sm:pb-5">
                 {beat && <div key={beat.text} className="beat-in beat">{beat.text}</div>}
-                {captions && <Captions text={scene.narration} progress={progress} />}
+                {captions && <Captions timeline={timeline} progress={progress} />}
               </div>
 
               {/* Transcription */}

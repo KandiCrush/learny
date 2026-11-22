@@ -2,22 +2,27 @@ import type { ReactNode } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { GanttChart } from '../../components/GanttChart'
 import { SchedulerMachine } from '../../components/SchedulerMachine'
+import { type Anchors, makeClock } from '../../lib/clock'
 import { clamp, easeOut } from '../../lib/math'
 import { fmt, type Schedule } from '../../lib/scheduling'
-import type { Scene } from '../types'
+import type { Scene, SoundCue } from '../types'
 import { DEMO_PROCS as procs, DEMO_Q, fcfs, rr, rr1, rr8, sjf } from './data'
+import { scheduleCues } from './cues'
+import { audioOf, narrationOf } from './narration'
+import { SYNC } from './sync.generated'
 
-/** Temps simulé : la simulation occupe les 88 % de la scène, le reste sert à lire le bilan */
-const RUN = 0.88
-const tOf = (progress: number, total: number) => clamp(progress / RUN) * total
-const at = (t: number, total: number) => (t / total) * RUN
+/**
+ * Les scènes animées par le temps simulé (FCFS, SJF, Round Robin) suivent la VOIX :
+ * `anchors` associe une expression de la narration à un instant simulé t.
+ * Les bulles (`on`) et les effets sonores utilisent les mêmes expressions.
+ */
 
 function Stack({ children }: { children: ReactNode }) {
   return <div className="flex h-full w-full flex-col items-center justify-center gap-3 sm:gap-5">{children}</div>
 }
 
-function Stats({ sch, progress }: { sch: Schedule; progress: number }) {
-  const o = easeOut(clamp((progress - RUN) / 0.08))
+function Stats({ sch, show }: { sch: Schedule; show: number }) {
+  const o = easeOut(clamp(show))
   const m = sch.metrics
   const items = [
     ['Attente moyenne', fmt(m.avgWaiting)],
@@ -36,152 +41,232 @@ function Stats({ sch, progress }: { sch: Schedule; progress: number }) {
   )
 }
 
-function Algorithm({ sch, progress }: { sch: Schedule; progress: number }) {
-  const t = tOf(progress, sch.total)
+/** Scène de simulation : machine + Gantt + bilan, pilotés par l'horloge calée sur la voix */
+function Algorithm({ sch, anchors, statsOn, progress, at }: { sch: Schedule; anchors: Anchors; statsOn: string; progress: number; at: (p: string) => number | null }) {
+  const clock = makeClock(anchors, at, -1, sch.total)
+  const t = clock.t(progress)
+  const s = at(statsOn) ?? 0.9
   return (
     <Stack>
       <SchedulerMachine procs={procs} schedule={sch} t={t} className="min-h-0 w-full flex-1" />
       <GanttChart procs={procs} schedule={sch} t={t} className="w-full max-h-[22%] shrink-0" />
-      <Stats sch={sch} progress={progress} />
+      <Stats sch={sch} show={(progress - s) / 0.04} />
     </Stack>
   )
 }
 
 const mFcfs = fcfs.metrics, mSjf = sjf.metrics, mRr = rr.metrics
+const T = 18 // durée simulée de la démo
+
+/** Scène 1 : durée d'apparition des processus = jusqu'à la fin de la 1re phrase de la voix */
+const INTRO_REVEAL = (at: (p: string) => number | null) => at('Dans un ordinateur') ?? 0.22
+/** Début du fondu du diagramme de Gantt = quand la voix dit « Cette décision » (légèrement avant) */
+const INTRO_GANTT = (at: (p: string) => number | null) => (at('Cette décision') ?? 0.8) - 0.02
 
 /* ------------------------------------------------------------------ */
-
+/* 1 — Introduction                                                    */
+/* ------------------------------------------------------------------ */
 const intro: Scene = {
   id: 'intro',
   title: 'Un processeur, plusieurs candidats',
   duration: 14, // durée provisoire : remplacée par celle du MP3 dès qu'il est chargé
-  audioSrc: '/audio/scheduling/01-intro.mp3', // voir docs/audio-scripts.md
-  narration:
-    "Imaginez un seul guichet et quatre clients pressés. Dans un ordinateur, le guichet, c'est le processeur. Les clients, ce sont les processus. Un seul peut être servi à la fois : il faut donc décider de l'ordre. Cette décision, c'est le travail de l'ordonnanceur.",
+  audioSrc: audioOf('intro'),
+  sync: SYNC.intro, // repères mesurés : python3 scripts/calibrate-sync.py
+  narration: narrationOf('intro'),
+  // Effets sonores — seulement les moments qui aident à comprendre.
+  // L'animation d'apparition dure jusqu'à la fin de la 1re phrase (« …clients pressés. »), puis
+  // le diagramme se dévoile quand la voix dit « Cette décision » : tout est donc lié à la voix.
+  cues: (at) => {
+    const r = INTRO_REVEAL(at)
+    const g = INTRO_GANTT(at)
+    return [
+      { at: r * 0.05, sound: 'appear', pitch: 0 }, // P1 apparaît
+      { at: r * 0.133, sound: 'appear', pitch: 1 }, // P2
+      { at: r * 0.25, sound: 'appear', pitch: 2 }, // P3
+      { at: r * 0.367, sound: 'appear', pitch: 3 }, // P4 : la gamme monte, « quatre processus »
+      { at: r * 0.5, sound: 'enter', gain: 0.8 }, // le processeur s'allume
+      { on: 'Un seul peut', sound: 'enter', gain: 0.55 }, // « un seul » : on rappelle le CPU unique
+      { at: g + 0.01, sound: 'move', gain: 0.8 }, // le diagramme de Gantt se dévoile
+    ]
+  },
   beats: [
     { at: 0, text: '4 processus sont prêts à s’exécuter' },
-    { at: 0.38, text: 'Mais il n’y a qu’un seul processeur' },
-    { at: 0.68, text: 'L’ordonnanceur décide qui passe, quand, et pour combien de temps' },
+    { at: 0.38, on: 'Un seul peut', text: 'Mais il n’y a qu’un seul processeur' },
+    { at: 0.68, on: 'Cette décision', text: 'L’ordonnanceur décide qui passe, quand, et pour combien de temps' },
   ],
-  render: ({ progress }) => (
+  render: ({ progress, at }) => (
     <Stack>
-      <SchedulerMachine procs={procs} schedule={fcfs} t={-1} reveal={clamp(progress / 0.5)} className="min-h-0 w-full flex-1" />
-      <div style={{ opacity: easeOut(clamp((progress - 0.65) / 0.2)) }} className="w-full max-h-[22%]">
+      <SchedulerMachine procs={procs} schedule={fcfs} t={-1} reveal={clamp(progress / INTRO_REVEAL(at))} className="min-h-0 w-full flex-1" />
+      <div style={{ opacity: easeOut(clamp((progress - INTRO_GANTT(at)) / 0.1)) }} className="w-full max-h-[22%]">
         <GanttChart procs={procs} schedule={fcfs} t={0} className="w-full" label="Diagramme de Gantt" sublabel="se remplira au fil de l’exécution" />
       </div>
     </Stack>
   ),
 }
 
+/* ------------------------------------------------------------------ */
+/* 2 — FCFS                                                            */
+/* ------------------------------------------------------------------ */
+const FCFS_A: Anchors = [
+  ['P1 prend', 0],
+  ['Quand P1 termine', 8],
+  ['Puis vient P3', 11],
+  ['Et enfin P4', 16],
+  ["Voici l'effet", 18],
+]
 const fcfsScene: Scene = {
   id: 'fcfs',
   title: 'FCFS — premier arrivé, premier servi',
-  duration: 26,
-  narration:
-    "Premier algorithme : FCFS, premier arrivé, premier servi. C'est la file d'attente de la boulangerie : on passe dans l'ordre. P1 prend le processeur et le garde pendant huit unités. Pendant ce temps, P2, qui n'a besoin que de trois unités, patiente. Quand P1 termine, P2 passe, puis P3 et P4. Simple en apparence, mais un long processus au début retarde tous les autres : c'est l'effet de convoi.",
+  duration: 34,
+  audioSrc: audioOf('fcfs'),
+  sync: SYNC.fcfs,
+  narration: narrationOf('fcfs'),
   beats: [
-    { at: 0, text: 'La file est servie dans l’ordre d’arrivée' },
-    { at: at(1.4, fcfs.total), text: 'P1 garde le CPU jusqu’au bout : personne ne peut le doubler' },
-    { at: at(8.6, fcfs.total), text: 'P2 n’a besoin que de 3… mais il a attendu 8 unités' },
-    { at: at(16.5, fcfs.total), text: 'Effet de convoi : les petits processus sont coincés derrière un gros' },
-    { at: RUN + 0.02, text: `Attente moyenne : ${fmt(mFcfs.avgWaiting)} unités` },
+    { on: 'Premier algorithme', text: 'La file est servie dans l’ordre d’arrivée' },
+    { on: 'P1 prend', text: 'P1 garde le CPU jusqu’au bout : personne ne peut le doubler' },
+    { on: 'Quand P1 termine', text: 'P2 n’a besoin que de 3… mais il a attendu 8 unités' },
+    { on: "Voici l'effet", text: 'Effet de convoi : les petits processus sont coincés derrière un gros' },
+    { on: "Ici, l'attente", text: `Attente moyenne : ${fmt(mFcfs.avgWaiting)} unités` },
   ],
-  render: ({ progress }) => <Algorithm sch={fcfs} progress={progress} />,
+  cues: (at) => scheduleCues(fcfs, makeClock(FCFS_A, at, -1, T)),
+  render: ({ progress, at }) => <Algorithm sch={fcfs} anchors={FCFS_A} statsOn="Ici, l'attente" progress={progress} at={at} />,
 }
 
+/* ------------------------------------------------------------------ */
+/* 3 — SJF                                                             */
+/* ------------------------------------------------------------------ */
+const SJF_A: Anchors = [
+  ['La file se trie', 0],
+  ['Puis P2', 2],
+  ['Puis P3', 5],
+  ['Et P1', 10],
+  ['Résultat', 18],
+]
 const sjfScene: Scene = {
   id: 'sjf',
   title: 'SJF — le plus court d’abord',
-  duration: 24,
-  narration:
-    "Deuxième algorithme : SJF, le plus court d'abord. L'ordonnanceur regarde la durée de chaque processus et choisit toujours le plus court. P4 passe en premier, puis P2, P3 et enfin P1, le plus long. Dans la version non préemptive, un processus lancé n'est jamais interrompu. Résultat : l'attente moyenne chute fortement. Mais attention, un gros processus peut attendre très longtemps : c'est la famine.",
+  duration: 32,
+  audioSrc: audioOf('sjf'),
+  sync: SYNC.sjf,
+  narration: narrationOf('sjf'),
   beats: [
-    { at: 0, text: 'La file est triée : le plus court se place devant' },
-    { at: at(2.3, sjf.total), text: 'P4 (2) a filé ; P2 (3) passe avant P3 (5) et P1 (8)' },
-    { at: at(5.5, sjf.total), text: 'Non préemptif : une fois lancé, un processus va jusqu’au bout' },
-    { at: at(11, sjf.total), text: 'Le gros P1 passe en dernier — risque de famine' },
-    { at: RUN + 0.02, text: `Attente moyenne : ${fmt(mSjf.avgWaiting)} — presque deux fois mieux que FCFS` },
+    { on: 'Deuxième algorithme', text: 'SJF choisit toujours le plus court travail' },
+    { on: 'La file se trie', text: 'La file est triée : le plus court se place devant' },
+    { on: 'Puis P2', text: 'P2 (3) passe avant P3 (5) et P1 (8)' },
+    { on: 'Dans la version', text: 'Non préemptif : une fois lancé, un processus va jusqu’au bout' },
+    { on: 'Résultat', text: `Attente moyenne : ${fmt(mSjf.avgWaiting)} — presque deux fois mieux que FCFS` },
+    { on: 'Mais attention', text: 'Le gros P1 passe en dernier — risque de famine' },
   ],
-  render: ({ progress }) => <Algorithm sch={sjf} progress={progress} />,
+  cues: (at) => scheduleCues(sjf, makeClock(SJF_A, at, -1, T), { sort: true }),
+  render: ({ progress, at }) => <Algorithm sch={sjf} anchors={SJF_A} statsOn="Résultat" progress={progress} at={at} />,
 }
 
+/* ------------------------------------------------------------------ */
+/* 4 — Round Robin                                                     */
+/* ------------------------------------------------------------------ */
+const RR_A: Anchors = [
+  ["P1 s'exécute", 0],
+  ['il est interrompu', 3],
+  ['puis P3', 6],
+  ["P4 n'a besoin", 9],
+  ['Ensuite', 11],
+  ["Personne n'attend", 18],
+]
 const rrScene: Scene = {
   id: 'rr',
   title: 'Round Robin — le tourniquet',
-  duration: 28,
-  narration:
-    "Troisième algorithme : Round Robin, le tourniquet. Chaque processus reçoit le processeur pour un quantum de trois unités au maximum. Si le travail n'est pas terminé, il est interrompu et replacé à la fin de la file. P1 s'exécute trois unités, puis cède sa place. P4 n'a besoin que de deux unités : il rend le processeur plus tôt. Personne n'attend longtemps avant de démarrer, ce qui rend le système très réactif.",
+  duration: 36,
+  audioSrc: audioOf('rr'),
+  sync: SYNC.rr,
+  narration: narrationOf('rr'),
   beats: [
-    { at: 0, text: `Chaque processus reçoit au plus ${DEMO_Q} unités de CPU (le quantum)` },
-    { at: at(3.5, rr.total), text: 'Quantum écoulé : P1 est interrompu et repart en fin de file' },
-    { at: at(9.6, rr.total), text: 'P4 n’avait besoin que de 2 : il rend le CPU avant la fin de son quantum' },
-    { at: at(12, rr.total), text: 'Les restes de P1 et P3 repassent à tour de rôle' },
-    { at: RUN + 0.02, text: `Réponse moyenne : ${fmt(mRr.avgResponse)} contre ${fmt(mFcfs.avgResponse)} en FCFS` },
+    { on: 'Chaque processus', text: `Chaque processus reçoit au plus ${DEMO_Q} unités de CPU (le quantum)` },
+    { on: 'il est interrompu', text: 'Quantum écoulé : P1 est interrompu et repart en fin de file' },
+    { on: "P4 n'a besoin", text: 'P4 n’avait besoin que de 2 : il rend le CPU avant la fin de son quantum' },
+    { on: 'Ensuite', text: 'Les restes de P1 et P3 repassent à tour de rôle' },
+    { on: "Personne n'attend", text: `Réponse moyenne : ${fmt(mRr.avgResponse)} contre ${fmt(mFcfs.avgResponse)} en FCFS` },
   ],
-  render: ({ progress }) => <Algorithm sch={rr} progress={progress} />,
+  cues: (at) => scheduleCues(rr, makeClock(RR_A, at, -1, T), { firstPreemption: true }),
+  render: ({ progress, at }) => <Algorithm sch={rr} anchors={RR_A} statsOn="Personne n'attend" progress={progress} at={at} />,
 }
 
+/* ------------------------------------------------------------------ */
+/* 5 — Le quantum : trois diagrammes révélés l'un après l'autre         */
+/* ------------------------------------------------------------------ */
+const Q_STARTS = ['Avec un quantum de 1', 'Avec un quantum de 3', 'Avec un quantum de 8', 'Un bon quantum']
 const quantumScene: Scene = {
   id: 'quantum',
   title: 'Le quantum, un réglage délicat',
-  duration: 22,
-  narration:
-    "Le quantum est un réglage délicat. Avec un quantum de une unité, les processus alternent sans cesse : le système perd beaucoup de temps à changer de contexte. Avec un quantum de huit, plus aucun processus n'est interrompu et Round Robin se comporte comme FCFS. Un bon quantum se situe entre les deux.",
+  duration: 30,
+  audioSrc: audioOf('quantum'),
+  sync: SYNC.quantum,
+  narration: narrationOf('quantum'),
   beats: [
-    { at: 0, text: 'Même processus, trois quanta différents' },
-    { at: 0.2, text: `q = 1 : ${rr1.metrics.switches} changements de contexte — le CPU passe son temps à jongler` },
-    { at: 0.55, text: 'q = 8 : plus aucune interruption, on retombe sur FCFS' },
-    { at: RUN + 0.02, text: 'Un bon quantum se trouve entre les deux' },
+    { on: 'Le quantum', text: 'Même processus, trois quanta différents' },
+    { on: 'Avec un quantum de 1', text: `q = 1 : ${rr1.metrics.switches} changements de contexte — le CPU passe son temps à jongler` },
+    { on: 'Avec un quantum de 3', text: `q = ${DEMO_Q} : ${rr.metrics.switches} changements, un bon équilibre` },
+    { on: 'Avec un quantum de 8', text: 'q = 8 : plus aucune interruption, on retombe sur FCFS' },
+    { on: 'Un bon quantum', text: 'Un bon quantum se trouve entre les deux' },
   ],
-  render: ({ progress }) => {
-    const rows: [string, Schedule][] = [
-      ['q = 1', rr1],
-      [`q = ${DEMO_Q}`, rr],
-      ['q = 8', rr8],
-    ]
-    const T = rr.total
-    const t = tOf(progress, T)
-    const o = easeOut(clamp((progress - RUN) / 0.08))
+  cues: (at) => Q_STARTS.slice(0, 3).map((p, i): SoundCue => ({ at: at(p) ?? 0.1 + i * 0.25, sound: 'appear', pitch: [0, 2, 4][i], gain: 0.9 })),
+  render: ({ progress, at }) => {
+    const rows: [string, Schedule][] = [['q = 1', rr1], [`q = ${DEMO_Q}`, rr], ['q = 8', rr8]]
+    const end = at('Un bon quantum') ?? 0.9
+    const o = easeOut(clamp((progress - end) / 0.05))
     return (
       <div className="flex h-full w-full flex-col justify-center gap-4 sm:gap-6">
-        {rows.map(([lab, s]) => (
-          <div key={lab} className="grid items-center gap-x-4 rounded-2xl border border-white/10 bg-white/[.03] px-3 py-2 sm:px-4 md:grid-cols-[110px_minmax(0,1fr)]">
-            <div><div className="text-[13px] font-semibold">Round Robin</div><div className="font-mono text-[15px] text-[var(--mint)]">{lab}</div><div className="mt-0.5 text-[11px] text-white/45">{s.metrics.switches} changements de contexte</div></div>
-            <GanttChart procs={procs} schedule={s} t={t} scaleTotal={T} compact className="w-full" />
-          </div>
-        ))}
+        {rows.map(([lab, s], i) => {
+          const clock = makeClock([[Q_STARTS[i], 0], [Q_STARTS[i + 1], T]], at, 0, T)
+          return (
+            <div key={lab} className="grid items-center gap-x-4 rounded-2xl border border-white/10 bg-white/[.03] px-3 py-2 sm:px-4 md:grid-cols-[110px_minmax(0,1fr)]">
+              <div><div className="text-[13px] font-semibold">Round Robin</div><div className="font-mono text-[15px] text-[var(--mint)]">{lab}</div><div className="mt-0.5 text-[11px] text-white/45">{s.metrics.switches} changements de contexte</div></div>
+              <GanttChart procs={procs} schedule={s} t={clock.t(progress)} scaleTotal={T} compact className="w-full" />
+            </div>
+          )
+        })}
         <p className="text-center text-sm text-white/55" style={{ opacity: o }}>Plus il y a de changements de contexte, plus le système perd de temps utile.</p>
       </div>
     )
   },
 }
 
+/* ------------------------------------------------------------------ */
+/* 6 — Comparaison                                                     */
+/* ------------------------------------------------------------------ */
 const compareScene: Scene = {
   id: 'compare',
   title: 'Comparer les trois approches',
-  duration: 24,
-  narration:
-    "Comparons les trois approches. SJF obtient la plus faible attente moyenne. Round Robin offre le meilleur temps de réponse. FCFS reste le plus simple, mais il est sensible à l'effet de convoi. Aucun algorithme n'est le meilleur partout : tout dépend de ce que l'on cherche à optimiser. À vous de jouer : passez en mode Exploration pour modifier les durées et le quantum.",
+  duration: 30,
+  audioSrc: audioOf('compare'),
+  sync: SYNC.compare,
+  narration: narrationOf('compare'),
   beats: [
-    { at: 0, text: 'Mêmes processus, trois façons de les servir' },
-    { at: 0.45, text: 'SJF minimise l’attente moyenne' },
-    { at: 0.62, text: 'Round Robin offre la meilleure réactivité' },
-    { at: 0.8, text: 'Aucun algorithme n’est le meilleur partout' },
+    { on: 'Comparons', text: 'Mêmes processus, trois façons de les servir' },
+    { on: 'SJF obtient', text: 'SJF minimise l’attente moyenne' },
+    { on: 'Round Robin offre', text: 'Round Robin offre la meilleure réactivité' },
+    { on: "FCFS reste", text: 'FCFS : simple, mais sensible au convoi' },
+    { on: 'Aucun algorithme', text: 'Aucun algorithme n’est le meilleur partout' },
   ],
-  render: ({ progress, actions }) => {
+  cues: (at) => [
+    { at: (at('SJF obtient') ?? 0.2) + 0.07, sound: 'done', gain: 0.8 }, // le meilleur est mis en évidence
+    { at: (at('Round Robin offre') ?? 0.4) + 0.02, sound: 'appear', pitch: 3, gain: 0.9 },
+    { at: at('À vous de jouer') ?? 0.9, sound: 'appear', pitch: 5, gain: 0.9 }, // l'invitation à explorer
+  ],
+  render: ({ progress, at, actions }) => {
     const rows = [
-      { name: 'FCFS', s: fcfs, tone: 'text-white/80' },
-      { name: 'SJF', s: sjf, tone: '' },
-      { name: 'Round Robin', s: rr, tone: '' },
+      { name: 'FCFS', s: fcfs },
+      { name: 'SJF', s: sjf },
+      { name: 'Round Robin', s: rr },
     ]
-    const T = 18
-    const t = clamp(progress / 0.45) * T
-    const grow = easeOut(clamp((progress - 0.4) / 0.3))
+    const clock = makeClock([['Comparons', 0], ['Round Robin offre', T]], at, 0, T)
+    const t = clock.t(progress)
+    const growAt = at('SJF obtient') ?? 0.4
+    const grow = easeOut(clamp((progress - growAt) / 0.1))
     const maxW = Math.max(...rows.map((r) => r.s.metrics.avgWaiting))
     const maxR = Math.max(...rows.map((r) => r.s.metrics.avgResponse))
     const bestW = Math.min(...rows.map((r) => r.s.metrics.avgWaiting))
     const bestR = Math.min(...rows.map((r) => r.s.metrics.avgResponse))
-    const cta = easeOut(clamp((progress - 0.88) / 0.08))
+    const cta = easeOut(clamp((progress - (at('À vous de jouer') ?? 0.88)) / 0.06))
     return (
       <div className="flex h-full w-full flex-col justify-center gap-2.5 sm:gap-3">
         {rows.map(({ name, s }) => {

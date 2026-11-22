@@ -1,16 +1,16 @@
-/** Sous-titres : la phrase en cours, mot par mot, au rythme de la narration */
-export function Captions({ text, progress }: { text: string; progress: number }) {
-  const sentences = text.match(/[^.!?]+[.!?]+\s*/g) ?? [text]
-  const words = sentences.map((s) => s.trim().split(/\s+/))
-  const total = words.reduce((a, w) => a + w.length, 0)
-  const cursor = Math.min(total - 1, Math.floor(progress * total))
-  let acc = 0, si = 0
-  for (; si < words.length - 1; si++) { if (cursor < acc + words[si].length) break; acc += words[si].length }
-  const local = cursor - acc
+import type { Timeline } from '../lib/narration'
+
+/** Sous-titres : la phrase en cours, le mot prononcé est mis en évidence (rythme estimé + repères) */
+export function Captions({ timeline, progress }: { timeline: Timeline; progress: number }) {
+  const { words } = timeline
+  let cursor = 0
+  for (let i = 0; i < words.length; i++) { if (words[i].start <= progress) cursor = i; else break }
+  const sentence = words[cursor].sentence
+  const line = words.map((w, i) => ({ ...w, i })).filter((w) => w.sentence === sentence)
   return (
-    <p key={si} className="caption-in mx-auto max-w-3xl text-center text-[15px] leading-relaxed sm:text-[17px]">
-      {words[si].map((w, i) => (
-        <span key={i} className={i < local ? 'text-white/90' : i === local ? 'text-white' : 'text-white/35'} style={{ transition: 'color .25s' }}>{w}{' '}</span>
+    <p key={sentence} className="caption-in mx-auto max-w-3xl text-center text-[15px] leading-relaxed sm:text-[17px]">
+      {line.map((w) => (
+        <span key={w.i} className={w.i < cursor ? 'text-white/90' : w.i === cursor ? 'text-white' : 'text-white/35'} style={{ transition: 'color .2s' }}>{w.w}{' '}</span>
       ))}
     </p>
   )

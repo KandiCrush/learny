@@ -4,8 +4,10 @@
  * constante : elles suivent la narration. On associe des expressions de la narration à des
  * instants simulés (« quand la voix dit "Quand P1 termine", t = 8 »), et on interpole entre.
  */
-export type PhraseAt = (phrase: string) => number | null
-export type Anchors = readonly (readonly [phrase: string, t: number])[]
+/** progression (0 → 1) à laquelle la voix dit `phrase`, décalée de `offsetSec` secondes (négatif = l'image PRÉCÈDE la voix) */
+export type PhraseAt = (phrase: string, offsetSec?: number) => number | null
+/** [expression, temps simulé, décalage en secondes (facultatif)] — le décalage sert à lisser la vitesse de l'animation */
+export type Anchors = readonly (readonly [phrase: string, t: number, offsetSec?: number])[]
 
 export interface Clock {
   /** progression de la scène (0 → 1) → temps simulé */
@@ -20,8 +22,8 @@ export interface Clock {
  */
 export function makeClock(anchors: Anchors, at: PhraseAt, t0: number, total: number): Clock {
   const pts: [number, number][] = [[0, t0]]
-  for (const [phrase, t] of anchors) {
-    const p = at(phrase)
+  for (const [phrase, t, offset] of anchors) {
+    const p = at(phrase, offset ?? 0)
     const last = pts[pts.length - 1]
     if (p == null || p <= last[0] || t < last[1]) continue
     pts.push([p, t])

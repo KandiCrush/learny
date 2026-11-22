@@ -7,9 +7,11 @@ const MOVE = 0.55
 
 interface Pos { x: number; y: number; s: number }
 
-const CPU = { x: 690, y: 175 }
-const QUEUE_FRONT = 545
-const GAP = 88
+/** Mise en page (viewBox 1000 × 340) : file 24→560 · espace · processeur · espace · zone « Terminés » */
+const LANE = { x: 24, w: 536 }
+const CPU = { x: 700, y: 175 }
+const QUEUE_FRONT = 502 // centre du 1er bloc : 22 px de marge entre le bloc et le bord droit de la file
+const GAP = 84
 
 function posOf(pid: number, l: Layout): Pos {
   if (l.running === pid) return { x: CPU.x, y: CPU.y, s: 1.12 }
@@ -17,8 +19,10 @@ function posOf(pid: number, l: Layout): Pos {
   if (q >= 0) return { x: QUEUE_FRONT - q * GAP, y: 175, s: 1 }
   const d = l.done.indexOf(pid)
   const k = d < 0 ? 0 : d
-  return { x: 880 + (k % 2) * 58, y: 118 + Math.floor(k / 2) * 58, s: 0.62 }
+  return { x: 880 + (k % 2) * 58, y: 138 + Math.floor(k / 2) * 58, s: 0.62 } // 20 px de marge sous le bord haut de la zone
 }
+
+export interface Reveal { lane: number; cpu: number; procs: (i: number) => number }
 
 interface Props {
   procs: Proc[]
@@ -26,22 +30,29 @@ interface Props {
   /** temps simulé ; < 0 = avant le départ */
   t: number
   /** 0 → 1 : apparition progressive (scène d'introduction) */
-  reveal?: number
+  /** apparition : nombre (0 → 1, scène d'intro classique) ou calendrier précis { lane, cpu, procs[i] } (chacun 0 → 1) */
+  reveal?: number | Reveal
+  /** Round Robin : badge « contexte sauvegardé » sur les processus interrompus + mention sauvegarde / restauration */
+  contextHints?: boolean
   className?: string
 }
 
-export function SchedulerMachine({ procs, schedule, t, reveal = 1, className }: Props) {
+export function SchedulerMachine({ procs, schedule, t, reveal = 1, contextHints, className }: Props) {
   const uid = useId().replace(/:/g, '')
   const { slices, layouts, initial } = schedule
   const idx = sliceIndexAt(schedule, t)
   const n = slices.length
 
   // layout précédent / courant pour le fondu de position
-  const cur = idx < 0 ? initial : layouts[Math.min(idx, n)]
-  const prev = idx <= 0 ? initial : layouts[idx - 1]
+  // SJF : la file se TRIE d'abord (t de -1 à -0,5), puis on attend ; le 1er processus n'entre au CPU qu'à t = 0.
+  // (Dans les autres algorithmes, `start` = `initial` : rien ne bouge avant t = 0.)
+  const f0 = layouts[0]
+  const start: Layout = schedule.algo === 'sjf' && f0 && f0.running !== null ? { running: null, queue: [f0.running, ...f0.queue], done: [] } : initial
+  const cur = idx < 0 ? start : layouts[Math.min(idx, n)]
+  const prev = idx < 0 ? initial : idx === 0 ? start : layouts[idx - 1]
   const segStart = idx < 0 ? 0 : idx >= n ? slices[n - 1]?.end ?? 0 : slices[idx].start
-  const u = idx < 0 ? 1 : easeInOut(clamp((t - segStart) / MOVE))
-  const sinceStart = idx <= 0 && t < 0 ? 0 : u
+  const u = idx < 0 ? easeInOut(clamp((t + 1) / 0.5)) : easeInOut(clamp((t - segStart) / MOVE))
+  const sinceStart = u
 
   const exec = executedAt(schedule, Math.max(t, 0))
   const running = idx >= 0 && idx < n ? slices[idx] : null
@@ -50,8 +61,23 @@ export function SchedulerMachine({ procs, schedule, t, reveal = 1, className }: 
   const finished = idx >= n && n > 0
   const clock = Math.max(0, Math.min(t, schedule.total))
 
-  const laneOp = clamp(reveal * 4)
-  const cpuOp = clamp((reveal - 0.45) * 4)
+  // --- indice « contexte » (Round Robin) : sauvegarde à la sortie du CPU, restauration au retour ---
+  const hint: string[] = []
+  let hintOp = 0
+  if (contextHints && idx >= 1 && idx < n) {
+    const w = clamp(1 - Math.abs((t - (segStart + 0.4)) / 1.1))
+    hintOp = easeInOut(w)
+    const outgoing = prev.running
+    if (outgoing !== null && cur.queue.includes(outgoing)) hint.push(`↗ SAUVEGARDE · P${outgoing}`)
+    const incoming = cur.running
+    if (incoming !== null && (executedAt(schedule, segStart)[incoming] ?? 0) > 0) hint.push(`↙ RESTAURATION · P${incoming}`)
+  }
+
+  const R: Reveal = typeof reveal === 'number'
+    ? { lane: clamp(reveal * 4), cpu: clamp((reveal - 0.45) * 4), procs: (i) => easeOut(clamp(reveal * 3 - 0.1 - i * 0.35 + 0.2)) }
+    : reveal
+  const laneOp = R.lane
+  const cpuOp = R.cpu
 
   return (
     <svg viewBox="0 0 1000 340" className={className} role="img" aria-label="Processus, file d'attente et processeur">
@@ -80,16 +106,16 @@ export function SchedulerMachine({ procs, schedule, t, reveal = 1, className }: 
 
       {/* File d'attente */}
       <g opacity={laneOp}>
-        <rect x={24} y={104} width={560} height={142} rx={26} fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)" strokeDasharray="3 7" />
+        <rect x={LANE.x} y={104} width={LANE.w} height={142} rx={26} fill="rgba(255,255,255,.035)" stroke="rgba(255,255,255,.12)" strokeDasharray="3 7" />
         <text x={46} y={130} className="fill-white/50" fontSize="11.5" letterSpacing="2.2" fontFamily="Geist Mono, monospace">FILE D'ATTENTE</text>
         <g className="flow-arrows" stroke="rgba(255,255,255,.22)" strokeWidth="2.5" strokeLinecap="round" fill="none">
-          {[0, 1, 2].map((i) => <path key={i} d={`M${560 - i * 16} 230 l8 6 l-8 6`} style={{ animationDelay: `${i * 0.18}s` }} />)}
+          {[0, 1, 2].map((i) => <path key={i} d={`M${LANE.x + LANE.w - 24 - i * 16} 230 l8 6 l-8 6`} style={{ animationDelay: `${i * 0.18}s` }} />)}
         </g>
-        <text x={452} y={241} className="fill-white/35" fontSize="11" fontFamily="Geist Mono, monospace" textAnchor="end">prochain →</text>
+        <text x={LANE.x + LANE.w - 108} y={241} className="fill-white/35" fontSize="11" fontFamily="Geist Mono, monospace" textAnchor="end">prochain →</text>
       </g>
 
       {/* Lien file → CPU */}
-      <path d="M590 175 H 600" stroke="rgba(255,255,255,.25)" strokeWidth="2" strokeDasharray="2 5" opacity={laneOp} />
+      <path d={`M${LANE.x + LANE.w + 6} 175 H ${CPU.x - 106}`} stroke="rgba(255,255,255,.25)" strokeWidth="2" strokeDasharray="2 5" opacity={laneOp} />
 
       {/* Processeur */}
       <g opacity={cpuOp} transform={`translate(${CPU.x} ${CPU.y})`}>
@@ -115,6 +141,9 @@ export function SchedulerMachine({ procs, schedule, t, reveal = 1, className }: 
           {finished ? 'TERMINÉ' : 'EN ATTENTE'}
         </text>
         <text y={134} textAnchor="middle" fontSize="11.5" letterSpacing="2.4" fontFamily="Geist Mono, monospace" className="fill-white/55">PROCESSEUR</text>
+        {hint.map((h, i) => (
+          <text key={h} y={-118 - (hint.length - 1 - i) * 17} textAnchor="middle" fontSize="11.5" letterSpacing="1.4" fontFamily="Geist Mono, monospace" fill="#5eead4" opacity={hintOp}>{h}</text>
+        ))}
       </g>
 
       {/* Terminés */}
@@ -130,7 +159,7 @@ export function SchedulerMachine({ procs, schedule, t, reveal = 1, className }: 
         const k = sinceStart
         const lift = Math.sin(Math.PI * k) * (p.id === cur.running || p.id === prev.running ? -26 : -6)
         const x = lerp(a.x, b.x, k), y = lerp(a.y, b.y, k) + lift, s = lerp(a.s, b.s, k)
-        const appear = easeOut(clamp(reveal * 3 - 0.1 - i * 0.35 + 0.2))
+        const appear = R.procs(i)
         const rem = Math.max(0, p.burst - (exec[p.id] ?? 0))
         const frac = p.burst ? rem / p.burst : 0
         const isRun = running?.pid === p.id
@@ -143,6 +172,12 @@ export function SchedulerMachine({ procs, schedule, t, reveal = 1, className }: 
               <rect x={-36} y={36 - 72 * frac} width={72} height={72 * frac + 0.5} fill={p.color} opacity={doneNow ? 0.9 : 0.34} />
             </g>
             <rect x={-36} y={-36} width={72} height={72} rx={15} fill="none" stroke={p.color} strokeWidth={isRun ? 2.5 : 1.6} />
+            {contextHints && !isRun && !doneNow && (exec[p.id] ?? 0) > 1e-6 && (
+              <g transform="translate(0 -50)">
+                <rect x={-26} y={-9} width={52} height={18} rx={9} fill="rgba(94,234,212,.16)" stroke="rgba(94,234,212,.55)" />
+                <text y={4} textAnchor="middle" fill="#5eead4" fontSize="10" fontFamily="Geist Mono, monospace">PCB ✓</text>
+              </g>
+            )}
             <text y={-4} textAnchor="middle" fill="#fff" fontSize="20" fontWeight="700" fontFamily="Geist, sans-serif">{p.name}</text>
             <text y={17} textAnchor="middle" fill="#fff" fillOpacity=".78" fontSize="11.5" fontFamily="Geist Mono, monospace">
               {doneNow ? '✓' : `reste ${Math.ceil(rem - 1e-6)}`}

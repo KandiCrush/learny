@@ -29,8 +29,16 @@ export interface SceneContext {
   progress: number
   playing: boolean
   /** progression (0 → 1) à laquelle la voix dit cette expression ; null si elle n'est pas dans la narration */
-  at: (phrase: string) => number | null
+  at: (phrase: string, offsetSec?: number) => number | null
   actions: { goExplore: () => void }
+}
+
+export interface SceneAudio {
+  src: string
+  from: number
+  to: number
+  /** durée du MP3 au moment de la calibration : si le fichier a changé, la plage est ignorée (avertissement en dev) */
+  fileDuration?: number
 }
 
 export interface Scene {
@@ -41,10 +49,11 @@ export interface Scene {
   /** texte lu par la narration (affiché en sous-titres + transcription) */
   narration: string
   /**
-   * Fichier audio ElevenLabs de la scène, ex. '/audio/scheduling/02-fcfs.mp3'.
-   * Quand il est renseigné, le lecteur le joue en synchronisation avec l'animation.
+   * Plage de cette scène dans le fichier audio du cours (un MP3 pour tout le cours, ou un par groupe de scènes) :
+   * `from` / `to` en secondes. Les valeurs viennent de `scripts/calibrate-sync.py` (sync.generated.ts).
+   * Absent : la scène se joue en silence avec sa durée simulée (`duration`).
    */
-  audioSrc?: string
+  audio?: SceneAudio
   /**
    * Repères mesurés sur le MP3 : « ce mot commence à tant de secondes ».
    * Se mesurent avec `python3 scripts/silences.py <fichier.mp3>`. À refaire si l'audio change.
@@ -52,7 +61,7 @@ export interface Scene {
   sync?: { text: string; at: number }[]
   beats?: Beat[]
   /** effets sonores synchronisés (facultatif) — voir src/audio/sfx.ts */
-  cues?: SoundCue[] | ((at: (phrase: string) => number | null) => SoundCue[])
+  cues?: SoundCue[] | ((at: (phrase: string, offsetSec?: number) => number | null) => SoundCue[])
   render: (ctx: SceneContext) => ReactNode
 }
 

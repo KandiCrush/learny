@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { GanttChart } from '../../components/GanttChart'
-import { SchedulerMachine } from '../../components/SchedulerMachine'
-import { type Anchors, makeClock } from '../../lib/clock'
+import { type Reveal, SchedulerMachine } from '../../components/SchedulerMachine'
+import { type Anchors, type PhraseAt, makeClock } from '../../lib/clock'
 import { clamp, easeOut } from '../../lib/math'
 import { fmt, type Schedule } from '../../lib/scheduling'
-import type { Scene, SoundCue } from '../types'
+import type { Scene, SceneAudio, SoundCue } from '../types'
 import { DEMO_PROCS as procs, DEMO_Q, fcfs, rr, rr1, rr8, sjf } from './data'
 import { scheduleCues } from './cues'
-import { audioOf, narrationOf } from './narration'
-import { SYNC } from './sync.generated'
+import { AUDIO_URL, type SceneKey, narrationOf } from './narration'
+import { FILE_DURATION, SEGMENTS, SYNC } from './sync.generated'
+import { ContextSwitch, PHASE_END } from '../../components/ContextSwitch'
 
 /**
  * Les scènes animées par le temps simulé (FCFS, SJF, Round Robin) suivent la VOIX :
@@ -42,13 +43,13 @@ function Stats({ sch, show }: { sch: Schedule; show: number }) {
 }
 
 /** Scène de simulation : machine + Gantt + bilan, pilotés par l'horloge calée sur la voix */
-function Algorithm({ sch, anchors, statsOn, progress, at }: { sch: Schedule; anchors: Anchors; statsOn: string; progress: number; at: (p: string) => number | null }) {
+function Algorithm({ sch, anchors, statsOn, progress, at, contextHints }: { sch: Schedule; anchors: Anchors; statsOn: string; progress: number; at: PhraseAt; contextHints?: boolean }) {
   const clock = makeClock(anchors, at, -1, sch.total)
   const t = clock.t(progress)
   const s = at(statsOn) ?? 0.9
   return (
     <Stack>
-      <SchedulerMachine procs={procs} schedule={sch} t={t} className="min-h-0 w-full flex-1" />
+      <SchedulerMachine procs={procs} schedule={sch} t={t} contextHints={contextHints} className="min-h-0 w-full flex-1" />
       <GanttChart procs={procs} schedule={sch} t={t} className="w-full max-h-[22%] shrink-0" />
       <Stats sch={sch} show={(progress - s) / 0.04} />
     </Stack>
@@ -58,10 +59,37 @@ function Algorithm({ sch, anchors, statsOn, progress, at }: { sch: Schedule; anc
 const mFcfs = fcfs.metrics, mSjf = sjf.metrics, mRr = rr.metrics
 const T = 18 // durée simulée de la démo
 
-/** Scène 1 : durée d'apparition des processus = jusqu'à la fin de la 1re phrase de la voix */
-const INTRO_REVEAL = (at: (p: string) => number | null) => at('Dans un ordinateur') ?? 0.22
+/** Plage de la scène dans le MP3 du cours (mesurée par scripts/calibrate-sync.py) ; absente tant que le MP3 n'existe pas */
+const audio = (k: SceneKey): SceneAudio | undefined => {
+  const seg = SEGMENTS[k]
+  return seg ? { src: AUDIO_URL, from: seg.from, to: seg.to, fileDuration: FILE_DURATION ?? undefined } : undefined
+}
+
+/**
+ * Scène 1 — calendrier d'apparition, lié à la voix :
+ *  - les 4 processus arrivent l'un après l'autre à partir de « Imaginez… » (≈ 1 s d'écart, pour ne laisser
+ *    aucun grand vide avant le processeur) ;
+ *  - le processeur apparaît quand la voix dit « le processeur » (≈ 5e seconde), pas avant.
+ */
+const introTimes = (at: PhraseAt) => {
+  const base = at('Imaginez') ?? 0
+  const sec = (x: number) => (at('Imaginez', x) ?? base) - base // durée de x secondes, exprimée en progression de la scène
+  return {
+    fade: sec(0.7),
+    procs: [0, 1, 2, 3].map((i) => base + sec(0.8 + 1.1 * i)),
+    cpu: at('le processeur', -0.1) ?? base + sec(5.2),
+  }
+}
+const introReveal = (progress: number, at: PhraseAt): Reveal => {
+  const { fade, procs, cpu } = introTimes(at)
+  return {
+    lane: clamp((progress - (procs[0] - fade * 0.4)) / fade),
+    procs: (i) => easeOut(clamp((progress - procs[i]) / fade)),
+    cpu: clamp((progress - cpu) / fade),
+  }
+}
 /** Début du fondu du diagramme de Gantt = quand la voix dit « Cette décision » (légèrement avant) */
-const INTRO_GANTT = (at: (p: string) => number | null) => (at('Cette décision') ?? 0.8) - 0.02
+const INTRO_GANTT = (at: PhraseAt) => (at('Cette décision') ?? 0.8) - 0.02
 
 /* ------------------------------------------------------------------ */
 /* 1 — Introduction                                                    */
@@ -70,21 +98,18 @@ const intro: Scene = {
   id: 'intro',
   title: 'Un processeur, plusieurs candidats',
   duration: 14, // durée provisoire : remplacée par celle du MP3 dès qu'il est chargé
-  audioSrc: audioOf('intro'),
+  audio: audio('intro'),
   sync: SYNC.intro, // repères mesurés : python3 scripts/calibrate-sync.py
   narration: narrationOf('intro'),
   // Effets sonores — seulement les moments qui aident à comprendre.
-  // L'animation d'apparition dure jusqu'à la fin de la 1re phrase (« …clients pressés. »), puis
-  // le diagramme se dévoile quand la voix dit « Cette décision » : tout est donc lié à la voix.
+  // Apparition des processus puis du processeur (introTimes) et dévoilement du diagramme (« Cette décision ») :
+  // tout est lié à la voix.
   cues: (at) => {
-    const r = INTRO_REVEAL(at)
+    const t = introTimes(at)
     const g = INTRO_GANTT(at)
     return [
-      { at: r * 0.05, sound: 'appear', pitch: 0 }, // P1 apparaît
-      { at: r * 0.133, sound: 'appear', pitch: 1 }, // P2
-      { at: r * 0.25, sound: 'appear', pitch: 2 }, // P3
-      { at: r * 0.367, sound: 'appear', pitch: 3 }, // P4 : la gamme monte, « quatre processus »
-      { at: r * 0.5, sound: 'enter', gain: 0.8 }, // le processeur s'allume
+      ...t.procs.map((p, i): SoundCue => ({ at: p + t.fade * 0.15, sound: 'appear', pitch: i })), // P1 → P4 : la gamme monte
+      { at: t.cpu + t.fade * 0.3, sound: 'enter', gain: 0.8 }, // le processeur apparaît, quand la voix le nomme
       { on: 'Un seul peut', sound: 'enter', gain: 0.55 }, // « un seul » : on rappelle le CPU unique
       { at: g + 0.01, sound: 'move', gain: 0.8 }, // le diagramme de Gantt se dévoile
     ]
@@ -96,7 +121,7 @@ const intro: Scene = {
   ],
   render: ({ progress, at }) => (
     <Stack>
-      <SchedulerMachine procs={procs} schedule={fcfs} t={-1} reveal={clamp(progress / INTRO_REVEAL(at))} className="min-h-0 w-full flex-1" />
+      <SchedulerMachine procs={procs} schedule={fcfs} t={-1} reveal={introReveal(progress, at)} className="min-h-0 w-full flex-1" />
       <div style={{ opacity: easeOut(clamp((progress - INTRO_GANTT(at)) / 0.1)) }} className="w-full max-h-[22%]">
         <GanttChart procs={procs} schedule={fcfs} t={0} className="w-full" label="Diagramme de Gantt" sublabel="se remplira au fil de l’exécution" />
       </div>
@@ -111,14 +136,14 @@ const FCFS_A: Anchors = [
   ['P1 prend', 0],
   ['Quand P1 termine', 8],
   ['Puis vient P3', 11],
-  ['Et enfin P4', 16],
+  ['Et enfin P4', 16, 1.0], // P3 (5 unités) finit 1 s APRÈS « Et enfin P4 » : jamais d'avance sur la voix, un peu de retard
   ["Voici l'effet", 18],
 ]
 const fcfsScene: Scene = {
   id: 'fcfs',
   title: 'FCFS — premier arrivé, premier servi',
   duration: 34,
-  audioSrc: audioOf('fcfs'),
+  audio: audio('fcfs'),
   sync: SYNC.fcfs,
   narration: narrationOf('fcfs'),
   beats: [
@@ -136,17 +161,20 @@ const fcfsScene: Scene = {
 /* 3 — SJF                                                             */
 /* ------------------------------------------------------------------ */
 const SJF_A: Anchors = [
-  ['La file se trie', 0],
+  // 1) la file se TRIE pendant « La file se trie » (t de -1 à -0,5) ; 2) on attend ; 3) P4 entre au CPU quand la voix dit « P4 »
+  ['La file se trie', -1],
+  ['La file se trie', -0.5, 0.8],
+  ['P4', 0],
   ['Puis P2', 2],
-  ['Puis P3', 5],
-  ['Et P1', 10],
+  ['Puis P3', 5, 0.5],
+  ['Et P1', 10, 1.1], // même principe : P3 (le plus long après P1) garde du temps
   ['Résultat', 18],
 ]
 const sjfScene: Scene = {
   id: 'sjf',
   title: 'SJF — le plus court d’abord',
   duration: 32,
-  audioSrc: audioOf('sjf'),
+  audio: audio('sjf'),
   sync: SYNC.sjf,
   narration: narrationOf('sjf'),
   beats: [
@@ -167,7 +195,8 @@ const sjfScene: Scene = {
 const RR_A: Anchors = [
   ["P1 s'exécute", 0],
   ['il est interrompu', 3],
-  ['puis P3', 6],
+  // P2 et P3 ont le même quantum : on partage le temps entre « il est interrompu » et « P4 n'a besoin » (P2 ≈ 3,4 s, P3 ≈ 4,5 s)
+  ['et il est replacé', 6, 0.6],
   ["P4 n'a besoin", 9],
   ['Ensuite', 11],
   ["Personne n'attend", 18],
@@ -175,30 +204,85 @@ const RR_A: Anchors = [
 const rrScene: Scene = {
   id: 'rr',
   title: 'Round Robin — le tourniquet',
-  duration: 36,
-  audioSrc: audioOf('rr'),
+  duration: 40,
+  audio: audio('rr'),
   sync: SYNC.rr,
   narration: narrationOf('rr'),
   beats: [
     { on: 'Chaque processus', text: `Chaque processus reçoit au plus ${DEMO_Q} unités de CPU (le quantum)` },
-    { on: 'il est interrompu', text: 'Quantum écoulé : P1 est interrompu et repart en fin de file' },
+    { on: 'il est interrompu', text: 'Quantum écoulé : P1 est interrompu, son contexte est sauvegardé' },
     { on: "P4 n'a besoin", text: 'P4 n’avait besoin que de 2 : il rend le CPU avant la fin de son quantum' },
-    { on: 'Ensuite', text: 'Les restes de P1 et P3 repassent à tour de rôle' },
+    { on: 'Ensuite', text: 'P1 et P3 repassent : chacun restaure son contexte' },
     { on: "Personne n'attend", text: `Réponse moyenne : ${fmt(mRr.avgResponse)} contre ${fmt(mFcfs.avgResponse)} en FCFS` },
   ],
   cues: (at) => scheduleCues(rr, makeClock(RR_A, at, -1, T), { firstPreemption: true }),
-  render: ({ progress, at }) => <Algorithm sch={rr} anchors={RR_A} statsOn="Personne n'attend" progress={progress} at={at} />,
+  render: ({ progress, at }) => <Algorithm sch={rr} anchors={RR_A} statsOn="Personne n'attend" progress={progress} at={at} contextHints />,
+}
+
+
+/* ------------------------------------------------------------------ */
+/* 5 — Le changement de contexte                                        */
+/* ------------------------------------------------------------------ */
+/** expression de la voix → phase de l'animation (voir ContextSwitch.tsx) */
+const CTX_A: Anchors = [
+  ['Regardons P1', 0],
+  ['Les données de P1', 0.45],
+  ['Le quantum est écoulé', 1.0],
+  ['Première étape', 1.3],
+  ['Deuxième étape', 2.1],
+  ['Quand P2', 4.0],
+  ['le système restaure', 5.0],
+  ['P1 repart', 6.0],
+  ['Cette opération', 7.0],
+]
+const contextScene: Scene = {
+  id: 'context',
+  title: 'Le changement de contexte',
+  duration: 44,
+  audio: audio('context'),
+  sync: SYNC.context,
+  narration: narrationOf('context'),
+  beats: [
+    { on: 'Que se passe-t-il', text: 'Que devient P1 quand il est interrompu ?' },
+    { on: 'Regardons P1', text: 'Le processeur suit P1 grâce à ses registres' },
+    { on: 'Les données de P1', text: 'Les données restent en mémoire : chargées, calculées, rangées' },
+    { on: 'Le quantum est écoulé', text: 'Fin du quantum : interruption d’horloge' },
+    { on: 'Première étape', text: 'Sauvegarde du contexte de P1 dans son PCB' },
+    { on: 'Deuxième étape', text: 'Chargement du contexte de P2' },
+    { on: 'Quand P2', text: 'P2 est terminé : son PCB est libéré' },
+    { on: 'le système restaure', text: 'Restauration : P1 retrouve exactement ses valeurs' },
+    { on: 'Cette opération', text: 'Un changement de contexte a un coût : le CPU est inactif' },
+  ],
+  cues: (at) => {
+    const c = makeClock(CTX_A, at, 0, PHASE_END)
+    return [
+      { at: c.progress(1.0), sound: 'enter', gain: 0.8 }, // interruption d'horloge
+      { at: c.progress(1.3), sound: 'move', gain: 0.8 }, // sauvegarde
+      { at: c.progress(2.1), sound: 'move', gain: 0.6 }, // chargement de P2
+      { at: c.progress(4.05), sound: 'done', gain: 0.8 }, // P2 terminé
+      { at: c.progress(5.0), sound: 'move', gain: 0.8 }, // restauration
+      { at: c.progress(5.9), sound: 'appear', pitch: 3, gain: 0.9 }, // P1 a retrouvé son contexte
+    ]
+  },
+  render: ({ progress, at }) => {
+    const clock = makeClock(CTX_A, at, 0, PHASE_END)
+    return (
+      <Stack>
+        <ContextSwitch ph={clock.t(progress)} className="min-h-0 w-full flex-1" />
+      </Stack>
+    )
+  },
 }
 
 /* ------------------------------------------------------------------ */
-/* 5 — Le quantum : trois diagrammes révélés l'un après l'autre         */
+/* 6 — Le quantum : trois diagrammes révélés l'un après l'autre         */
 /* ------------------------------------------------------------------ */
 const Q_STARTS = ['Avec un quantum de 1', 'Avec un quantum de 3', 'Avec un quantum de 8', 'Un bon quantum']
 const quantumScene: Scene = {
   id: 'quantum',
   title: 'Le quantum, un réglage délicat',
   duration: 30,
-  audioSrc: audioOf('quantum'),
+  audio: audio('quantum'),
   sync: SYNC.quantum,
   narration: narrationOf('quantum'),
   beats: [
@@ -231,13 +315,13 @@ const quantumScene: Scene = {
 }
 
 /* ------------------------------------------------------------------ */
-/* 6 — Comparaison                                                     */
+/* 7 — Comparaison                                                     */
 /* ------------------------------------------------------------------ */
 const compareScene: Scene = {
   id: 'compare',
   title: 'Comparer les trois approches',
   duration: 30,
-  audioSrc: audioOf('compare'),
+  audio: audio('compare'),
   sync: SYNC.compare,
   narration: narrationOf('compare'),
   beats: [
@@ -298,4 +382,4 @@ const compareScene: Scene = {
   },
 }
 
-export const scenes: Scene[] = [intro, fcfsScene, sjfScene, rrScene, quantumScene, compareScene]
+export const scenes: Scene[] = [intro, fcfsScene, sjfScene, rrScene, contextScene, quantumScene, compareScene]

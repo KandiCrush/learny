@@ -33,10 +33,15 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
   // rythme de la narration : estimé, corrigé par les repères mesurés (scene.sync)
   const timeline = useMemo(() => buildTimeline(scene.narration, player.duration, scene.sync), [scene, player.duration])
   // effets sonores : positions résolues sur la voix (on) ou la progression (at), déclenchés au franchissement
+  // position d'une expression de la voix (avec un décalage éventuel en secondes)
+  const atPhrase = useMemo(() => (phrase: string, offsetSec = 0) => {
+    const v = timeline.phraseStart(phrase)
+    return v == null ? null : Math.min(1, Math.max(0, v + offsetSec / player.duration))
+  }, [timeline, player.duration])
   const cues = useMemo(() => {
-    const raw = typeof scene.cues === 'function' ? scene.cues(timeline.phraseStart) : scene.cues ?? []
+    const raw = typeof scene.cues === 'function' ? scene.cues(atPhrase) : scene.cues ?? []
     return raw.map((c) => ({ ...c, pos: (c.on && timeline.phraseStart(c.on)) || c.at || 0 }))
-  }, [scene, timeline])
+  }, [scene, timeline, atPhrase])
   useSoundCues(cues, { progress, playing, tick: player.tick, index, speed: player.speed })
   const beats = (scene.beats ?? []).map((b) => ({ ...b, pos: (b.on && timeline.phraseStart(b.on)) || b.at || 0 }))
   const beat = [...beats].reverse().find((b) => progress >= b.pos) ?? beats[0]
@@ -121,7 +126,7 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
               <div ref={stageBody} className="relative min-h-0 flex-1 px-4 py-2 sm:px-8">
                 {/* sur petit écran la scène garde une largeur lisible et se fait défiler horizontalement */}
                 <div className="scroll-thin h-full overflow-auto">
-                  <div className="h-full min-w-[640px] sm:min-w-0">{scene.render({ progress, playing, at: timeline.phraseStart, actions: { goExplore } })}</div>
+                  <div className="h-full min-w-[640px] sm:min-w-0">{scene.render({ progress, playing, at: atPhrase, actions: { goExplore } })}</div>
                 </div>
               </div>
 
@@ -138,7 +143,7 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
                     <button key={s.id} onClick={() => player.goTo(i, false)} className={`block w-full rounded-2xl border p-4 text-left transition ${i === index ? 'border-[var(--accent)]/60 bg-[var(--accent)]/10' : 'border-white/10 bg-white/[.03] hover:bg-white/[.06]'}`}>
                       <div className="mb-1 text-[11px] uppercase tracking-widest text-white/45">{String(i + 1).padStart(2, '0')} · {s.title}</div>
                       <p className="text-[13.5px] leading-relaxed text-white/80">{s.narration}</p>
-                      {s.audioSrc && <div className="mt-2 text-[11px] text-[var(--mint)]">♪ audio</div>}
+                      {s.audio && <div className="mt-2 text-[11px] text-[var(--mint)]">♪ audio</div>}
                     </button>
                   ))}
                 </div>

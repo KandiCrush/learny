@@ -18,6 +18,35 @@ export interface Timeline {
 }
 
 const LETTERS_PER_SEC = 14
+
+/**
+ * « Longueur parlée » d'un mot, en lettres équivalentes. Un sigle (SJF, FCFS, PCB) est ÉPELÉ par la voix :
+ * chaque lettre dure ≈ 0,35 s, soit 5 lettres ordinaires. « P1 » se dit « P un ».
+ * (scripts/calibrate-sync.py applique la même règle.)
+ */
+const UNITS = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix', 'onze', 'douze', 'treize', 'quatorze', 'quinze', 'seize']
+const TENS = ['', '', 'vingt', 'trente', 'quarante', 'cinquante', 'soixante']
+/** Un nombre (0–99) écrit en toutes lettres : seule sa LONGUEUR compte ici */
+const frNumber = (n: number): string => {
+  if (n < 17) return UNITS[n]
+  if (n < 20) return `dix${UNITS[n - 10]}`
+  if (n < 70) { const t = Math.floor(n / 10), u = n % 10; return TENS[t] + (u === 1 ? 'et' + 'un' : u ? UNITS[u] : '') }
+  if (n < 80) return 'soixante' + frNumber(n - 60)
+  if (n === 80) return 'quatrevingts'
+  return 'quatrevingt' + frNumber(n - 80)
+}
+
+const spoken = (w: string) => {
+  const core = w.replace(/[^\p{L}\p{N}]/gu, '')
+  // nombre : « 8,75 » est lu « huit virgule soixante-quinze »
+  const num = /^(\d{1,2})(?:[,.](\d{1,2}))?$/.exec(w.replace(/[^\d,.]/g, '').replace(/[,.]$/, ''))
+  if (num && /^\d/.test(core) && !/[A-Za-zÀ-ÿ]/.test(core)) {
+    return frNumber(Number(num[1])).length + (num[2] ? 'virgule'.length + frNumber(Number(num[2])).length : 0)
+  }
+  if (/^\p{Lu}{2,}$/u.test(core)) return core.length * 5
+  if (/^\p{Lu}\d+$/u.test(core)) return 7
+  return Math.max(2, core.length)
+}
 const PAUSE: Record<string, number> = { ',': 0.22, ';': 0.3, ':': 0.35, '.': 0.6, '!': 0.6, '?': 0.6, '…': 0.5 }
 
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
@@ -42,8 +71,7 @@ export function buildTimeline(text: string, duration: number, sync: Sync[] = [])
   let t = 0
   tokens.forEach((w) => {
     est.push(t)
-    const letters = w.replace(/[^\p{L}\p{N}]/gu, '').length
-    t += Math.max(2, letters) / LETTERS_PER_SEC + (PAUSE[w.slice(-1)] ?? 0)
+    t += spoken(w) / LETTERS_PER_SEC + (PAUSE[w.slice(-1)] ?? 0)
   })
   const estTotal = t
 

@@ -15,7 +15,7 @@ const loaders: Record<string, () => Promise<Lesson>> = {
 
 /** Métadonnées légères, disponibles sans charger la leçon (bibliothèque, accueil) */
 export const lessonMeta: Record<string, { scenes: number; minutes: number }> = {
-  scheduling: { scenes: 6, minutes: 2 },
+  scheduling: { scenes: 7, minutes: 3 },
 }
 
 const cache = new Map<string, Lesson>()

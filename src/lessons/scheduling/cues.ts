@@ -14,7 +14,7 @@ export function scheduleCues(sch: Schedule, clock: Clock, opts: { sort?: boolean
   const lastSlice = new Map<number, number>()
   sch.slices.forEach((s, i) => lastSlice.set(s.pid, i))
 
-  if (opts.sort) cues.push({ at: clock.progress(0.05), sound: 'move', gain: 0.8 })
+  if (opts.sort) cues.push({ at: clock.progress(-0.9), sound: 'move', gain: 0.8 }) // le tri a lieu avant t = 0 (voir SchedulerMachine)
   let preempted = false
   sch.slices.forEach((s, i) => {
     cues.push({ at: clock.progress(s.start + 0.35), sound: 'enter', gain: i === 0 ? 0.8 : 0.55 })

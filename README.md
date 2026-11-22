@@ -30,7 +30,7 @@ scrubbing et vitesse reviennent à piloter une seule valeur.
 
 1. Créer `src/lessons/<ma-lecon>/index.tsx` exportant un objet `Lesson`
    (`scenes: Scene[]` + un composant `Explore`).
-2. L'ajouter dans `src/lessons/registry.ts`.
+2. Déclarer son chargeur (import dynamique) et ses métadonnées dans `src/lessons/registry.ts`.
 3. La référencer dans `src/library/catalog.ts` avec `lessonId` : elle apparaît dans son dossier.
 
 ## Brancher les voix ElevenLabs

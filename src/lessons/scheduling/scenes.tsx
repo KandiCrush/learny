@@ -54,9 +54,10 @@ const mFcfs = fcfs.metrics, mSjf = sjf.metrics, mRr = rr.metrics
 const intro: Scene = {
   id: 'intro',
   title: 'Un processeur, plusieurs candidats',
-  duration: 14,
+  duration: 14, // durée provisoire : remplacée par celle du MP3 dès qu'il est chargé
+  audioSrc: '/audio/scheduling/01-intro.mp3', // voir docs/audio-scripts.md
   narration:
-    "Imaginez un seul guichet et quatre clients pressés. Dans un ordinateur, le guichet, c'est le processeur ; les clients, ce sont les processus. Un seul peut être servi à la fois : il faut donc décider de l'ordre. Cette décision, c'est le travail de l'ordonnanceur.",
+    "Imaginez un seul guichet et quatre clients pressés. Dans un ordinateur, le guichet, c'est le processeur. Les clients, ce sont les processus. Un seul peut être servi à la fois : il faut donc décider de l'ordre. Cette décision, c'est le travail de l'ordonnanceur.",
   beats: [
     { at: 0, text: '4 processus sont prêts à s’exécuter' },
     { at: 0.38, text: 'Mais il n’y a qu’un seul processeur' },

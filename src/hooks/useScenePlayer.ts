@@ -10,8 +10,8 @@ import type { Scene } from '../lessons/types'
  * Audio : si `scene.audioSrc` est défini, le MP3 est joué en parallèle et sa durée
  * remplace `scene.duration` (voir useNarrationAudio ci-dessous).
  */
-export function useScenePlayer(scenes: Scene[]) {
-  const [index, setIndex] = useState(0)
+export function useScenePlayer(scenes: Scene[], initialIndex = 0) {
+  const [index, setIndex] = useState(() => Math.min(Math.max(0, initialIndex), scenes.length - 1))
   const [progress, setProgress] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
@@ -76,7 +76,9 @@ function useNarrationAudio(scene: Scene, playing: boolean, speed: number, tick: 
     if (!scene.audioSrc) { audio.current = null; return }
     const a = new Audio(scene.audioSrc)
     a.preload = 'auto'
-    a.onloadedmetadata = () => setAudioDuration(a.duration)
+    a.onloadedmetadata = () => { if (Number.isFinite(a.duration) && a.duration > 1) setAudioDuration(a.duration) }
+    // fichier absent ou illisible : la scène continue avec sa durée simulée, sans son
+    a.onerror = () => { audio.current = null; setAudioDuration(null) }
     audio.current = a
     return () => { a.pause(); audio.current = null }
   }, [scene.audioSrc])

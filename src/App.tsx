@@ -8,6 +8,7 @@ import { loadLesson } from './lessons/registry'
 import { findLessonPath } from './library/catalog'
 import { LibraryModal } from './library/LibraryModal'
 import { d, soften } from './lib/motion'
+import { readSession, writeSession } from './lib/session'
 
 export default function App() {
   const [lesson, setLesson] = useState<Lesson | null>(null)
@@ -28,6 +29,7 @@ export default function App() {
     try {
       const l = await loadLesson(id)
       setLibOpen(false)
+      if (readSession().lesson !== id) writeSession({ lesson: id, mode: 'explain', scene: 0 })
       setLesson(l)
     } catch {
       setError('Impossible de charger la leçon. Vérifiez votre connexion et réessayez.')
@@ -36,6 +38,9 @@ export default function App() {
       setLoadingId(null)
     }
   }
+
+  // reprise après rechargement : on revient dans la leçon en cours
+  useEffect(() => { const s = readSession().lesson; if (s) void openLesson(s) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // fondu entre accueil et leçon
   const first = useRef(true)
@@ -62,7 +67,7 @@ export default function App() {
       <Ambient />
       <div ref={page}>
         {lesson ? (
-          <LessonView key={lesson.id} lesson={lesson} onOpenLibrary={openLibrary} onHome={() => setLesson(null)} />
+          <LessonView key={lesson.id} lesson={lesson} onOpenLibrary={openLibrary} onHome={() => { writeSession(null); setLesson(null) }} />
         ) : (
           <Home onOpenLibrary={openLibrary} onOpenLesson={openLesson} loadingId={loadingId} />
         )}

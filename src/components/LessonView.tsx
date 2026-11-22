@@ -8,17 +8,18 @@ import { Captions } from './Captions'
 import { FolderButton } from './FolderButton'
 import { type Mode, ModeSwitch } from './ModeSwitch'
 import { d, soften } from '../lib/motion'
+import { readSession, writeSession } from '../lib/session'
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 2]
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 
 export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; onOpenLibrary: (r: DOMRect) => void; onHome: () => void }) {
-  const [mode, setMode] = useState<Mode>('explain')
+  const [mode, setMode] = useState<Mode>(() => (readSession().lesson === lesson.id && readSession().mode) || 'explain')
   const [target, setTarget] = useState<Mode | null>(null)
   const [switching, startTransition] = useTransition()
   const [captions, setCaptions] = useState(true)
   const [transcript, setTranscript] = useState(false)
-  const player = useScenePlayer(lesson.scenes)
+  const player = useScenePlayer(lesson.scenes, readSession().lesson === lesson.id ? readSession().scene ?? 0 : 0)
   const { scene, index, progress, playing } = player
   const visited = useVisited(lesson.id)
   const stageBody = useRef<HTMLDivElement>(null)
@@ -29,6 +30,7 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
   const beats = scene.beats ?? []
   const beat = [...beats].reverse().find((b) => progress >= b.at) ?? beats[0]
 
+  useEffect(() => { writeSession({ lesson: lesson.id, mode, scene: index }) }, [lesson.id, mode, index])
   useEffect(() => { if (progress > 0.85) markVisited(lesson.id, index) }, [progress, index, lesson.id])
 
   // transition entre scènes

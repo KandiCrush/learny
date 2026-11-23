@@ -18,8 +18,10 @@ src/
     registry.ts         liste des leçons disponibles
     scheduling/         leçon « Ordonnancement des processus » (données, scènes, mode Exploration)
     lifecycle/          leçon « Cycle de vie d'un processus » (scènes, simulation, lexique, narration, MP3 calibré)
+    memory/             leçon « Allocation et fragmentation de la mémoire » (une seule histoire de RAM, moteur d'allocation, laboratoire ; MP3 à générer)
     mutex/              leçon « Exclusion mutuelle… sémaphores » (scènes pilotées par le moteur, laboratoire, lexique ; MP3 à générer)
   lib/scheduling.ts     moteur FCFS / SJF / Round Robin (les animations lisent ce calcul)
+  lib/memory.ts         moteur d'allocation contiguë (partitions fixes/variables, 4 stratégies, compactage) : scènes ET laboratoire
   lib/concurrency.ts    moteur de concurrence (race, spinlock TAS, mutex bloquant, sémaphores) : scènes ET laboratoire le rejouent
   lib/lifecycle.ts      moteur du cycle de vie (états, transitions, refus argumentés) du mode Exploration
   library/              catalogue (catalog.ts) + fenêtre « Finder » (LibraryModal.tsx)
@@ -70,8 +72,10 @@ seconde dans le fichier. Sans MP3, le cours se joue en silence avec des durées 
    (ou à une phase, pour le changement de contexte) ; les bulles (`on`) et les effets sonores utilisent les mêmes expressions.
    Un 3e élément facultatif décale l'animation par rapport au mot (`['Puis vient P3', 11, -0.8]` : l'image précède la voix
    de 0,8 s) pour lisser la vitesse ; garder ce décalage autour de ±1 s.
-5. **Plus de 5 000 caractères ?** Un cours plus long se découpe en plusieurs MP3 (quelques scènes chacun) : une scène peut
-   pointer vers n'importe quel fichier via `scene.audio.src`.
+5. **Plus de 5 000 caractères ?** Un cours plus long se découpe en plusieurs MP3 : `narration.ts` exporte alors `PARTS`
+   (`[{ file, scenes }]`) ; `audio:scripts` écrit un texte par partie et `calibrate-sync.py` calibre chaque fichier
+   (le `sync.generated.ts` indique alors `file` pour chaque scène). Une narration peut aussi exporter `PAUSES` et
+   `courseScript()` pour des pauses longues après certaines lignes (laisser durer une animation).
 
 ## Effets sonores
 

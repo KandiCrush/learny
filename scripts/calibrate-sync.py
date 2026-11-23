@@ -200,10 +200,8 @@ def align(toks, line_end, est, est_total, t0, t1, sil, rate):
     return [(sil[si], cands[ci]) for si, ci in reversed(pairs)]
 
 
-def main():
-    order = node_json('m.SCENE_ORDER')
-    lines_all = node_json('m.LINES')
-    audio_file = node_json('m.AUDIO_FILE')
+def calibrate_part(order, audio_file, lines_all):
+    """Calibre UN mp3 sur les scènes `order` (dans l'ordre de lecture du fichier)."""
     path = os.path.join(AUDIO, audio_file)
 
     # jetons par scène (la ponctuation isolée est rattachée au mot précédent, comme dans src/lib/narration.ts)
@@ -270,16 +268,44 @@ def main():
                 at = s1 - starts[k]
                 print(f'  silence {s0:6.2f}→{s1:6.2f} ({s1 - s0:3.1f}s)  ⇒ « {ph} » à {at:.2f}s (scène)')
                 if 0.05 < at < end - starts[k]: result[k].append({'text': ph, 'at': round(at, 2)})
+    return segments, result, file_duration
+
+
+def main():
+    lines_all = node_json('m.LINES')
+    multi = node_json('m.PARTS !== undefined')
+    # un cours = un MP3 (SCENE_ORDER + AUDIO_FILE) ou plusieurs (PARTS : [{ file, scenes }]) si le texte dépasse 5 000 caractères
+    parts = node_json("m.PARTS ?? [{ file: m.AUDIO_FILE, scenes: m.SCENE_ORDER }]")
+    order, segments, result, durations = [], {}, {}, {}
+    for part in parts:
+        seg, res, fd = calibrate_part(part['scenes'], part['file'], lines_all)
+        order += part['scenes']; segments.update(seg); result.update(res); durations[part['file']] = fd
+        for k in part['scenes']:
+            if segments[k]: segments[k]['file'] = part['file']
 
     if REPORT: return
-    body = ['// Généré par scripts/calibrate-sync.py — ne pas modifier à la main.',
-            '// Le cours est UN MP3 : chaque scène en occupe une plage [from, to] (secondes).',
-            '// `SYNC` : repères « ce mot commence à tant de secondes APRÈS LE DÉBUT DE LA SCÈNE ».',
-            "import type { SceneKey } from './narration'", '',
-            f'/** Durée du MP3 au moment de la calibration (null = pas de MP3) */',
-            f'export const FILE_DURATION: number | null = {json.dumps(file_duration)}', '',
-            'export const SEGMENTS: Record<SceneKey, { from: number; to: number } | null> = {']
-    for k in order: body.append(f'  {k}: {json.dumps(segments[k])},')
+    if not multi:
+        file_duration = next(iter(durations.values()))
+        body = ['// Généré par scripts/calibrate-sync.py — ne pas modifier à la main.',
+                '// Le cours est UN MP3 : chaque scène en occupe une plage [from, to] (secondes).',
+                '// `SYNC` : repères « ce mot commence à tant de secondes APRÈS LE DÉBUT DE LA SCÈNE ».',
+                "import type { SceneKey } from './narration'", '',
+                f'/** Durée du MP3 au moment de la calibration (null = pas de MP3) */',
+                f'export const FILE_DURATION: number | null = {json.dumps(file_duration)}', '',
+                'export const SEGMENTS: Record<SceneKey, { from: number; to: number } | null> = {']
+        for k in order:
+            seg = segments[k] and {x: y for x, y in segments[k].items() if x != 'file'}
+            body.append(f'  {k}: {json.dumps(seg)},')
+    else:
+        body = ['// Généré par scripts/calibrate-sync.py — ne pas modifier à la main.',
+                '// Le cours est découpé en plusieurs MP3 (limite de 5 000 caractères par texte) : chaque scène indique son fichier',
+                '// et sa plage [from, to] (secondes) DANS ce fichier. `fileDuration` : durée du fichier à la calibration.',
+                '// `SYNC` : repères « ce mot commence à tant de secondes APRÈS LE DÉBUT DE LA SCÈNE ».',
+                "import type { SceneKey } from './narration'", '',
+                'export const SEGMENTS: Record<SceneKey, { file: string; from: number; to: number; fileDuration: number } | null> = {']
+        for k in order:
+            seg = segments[k] and {**segments[k], 'fileDuration': durations[segments[k]['file']]}
+            body.append(f'  {k}: {json.dumps(seg)},')
     body += ['}', '', 'export const SYNC: Record<SceneKey, { text: string; at: number }[]> = {']
     for k in order:
         body.append(f'  {k}: [')

@@ -13,6 +13,7 @@ const loaders: Record<string, () => Promise<Lesson>> = {
   scheduling: () => import('./scheduling').then((m) => m.schedulingLesson),
   lifecycle: () => import('./lifecycle').then((m) => m.lifecycleLesson),
   mutex: () => import('./mutex').then((m) => m.mutexLesson),
+  memory: () => import('./memory').then((m) => m.memoryLesson),
 }
 
 /** Métadonnées légères, disponibles sans charger la leçon (bibliothèque, accueil) */
@@ -20,6 +21,7 @@ export const lessonMeta: Record<string, { scenes: number; minutes: number }> = {
   scheduling: { scenes: 7, minutes: 3 },
   lifecycle: { scenes: 6, minutes: 3 },
   mutex: { scenes: 9, minutes: 5 },
+  memory: { scenes: 7, minutes: 3 },
 }
 
 const cache = new Map<string, Lesson>()

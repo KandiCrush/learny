@@ -47,8 +47,9 @@ export const catalog: FolderNode = {
           ],
         },
         {
-          kind: 'folder', id: 'os-mem', name: 'Mémoire', description: 'Pagination, segmentation, mémoire virtuelle.', color: '#ffb84d', icon: 'memory',
+          kind: 'folder', id: 'os-mem', name: 'Gestion de la mémoire', description: 'Allocation, pagination, mémoire virtuelle.', color: '#ffb84d', icon: 'memory',
           children: [
+            lesson('memalloc', 'Allocation et fragmentation de la mémoire', 'Partitions, fragmentation, compactage et stratégies d’allocation.', '#ffb84d', 'memory', 'memory'),
             lesson('paging', 'Pagination', 'Découper la mémoire en pages de taille fixe.', '#ffb84d', 'memory'),
             lesson('virt', 'Mémoire virtuelle', 'Faire croire à chaque programme qu’il est seul.', '#5eead4', 'layers'),
           ],

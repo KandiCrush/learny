@@ -17,8 +17,10 @@ src/
     types.ts            Lesson, Scene, Beat (le « contrat » d'une leçon)
     registry.ts         liste des leçons disponibles
     scheduling/         leçon « Ordonnancement des processus » (données, scènes, mode Exploration)
-    lifecycle/          leçon « Cycle de vie d'un processus » (scènes, simulation, lexique, narration — pas encore de MP3)
+    lifecycle/          leçon « Cycle de vie d'un processus » (scènes, simulation, lexique, narration, MP3 calibré)
+    mutex/              leçon « Exclusion mutuelle… sémaphores » (scènes pilotées par le moteur, laboratoire, lexique ; MP3 à générer)
   lib/scheduling.ts     moteur FCFS / SJF / Round Robin (les animations lisent ce calcul)
+  lib/concurrency.ts    moteur de concurrence (race, spinlock TAS, mutex bloquant, sémaphores) : scènes ET laboratoire le rejouent
   lib/lifecycle.ts      moteur du cycle de vie (états, transitions, refus argumentés) du mode Exploration
   library/              catalogue (catalog.ts) + fenêtre « Finder » (LibraryModal.tsx)
   hooks/useScenePlayer  lecteur de scènes piloté par GSAP (+ branchement audio)

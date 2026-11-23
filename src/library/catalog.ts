@@ -41,6 +41,7 @@ export const catalog: FolderNode = {
           children: [
             lesson('lifecycle', 'Cycle de vie d’un processus', 'Prêt, Élu, Bloqué : comment un processus partage le processeur.', '#5eead4', 'workflow', 'lifecycle'),
             lesson('sched', 'Ordonnancement des processus', 'FCFS, SJF et Round Robin : qui passe sur le processeur, et pourquoi ?', '#ff6b6b', 'timer', 'scheduling'),
+            lesson('mutex', 'Exclusion mutuelle, attente active, verrous et sémaphores', 'Protéger une ressource partagée : spinlock, mutex, sémaphores.', '#f472b6', 'shield', 'mutex'),
             lesson('threads', 'Processus et threads', 'Ce que partagent (ou non) les flux d’exécution.', '#ffb84d', 'branch'),
             lesson('deadlock', 'Interblocages', 'Quand tout le monde attend tout le monde.', '#f472b6', 'shield'),
           ],

@@ -37,8 +37,9 @@ export const catalog: FolderNode = {
       kind: 'folder', id: 'os', name: 'Systèmes d’exploitation', description: 'Processus, mémoire, fichiers : ce que fait le noyau pour vous.', color: '#8b7bff', icon: 'cpu',
       children: [
         {
-          kind: 'folder', id: 'os-proc', name: 'Processus', description: 'Vie, mort et ordonnancement des processus.', color: '#ff6b6b', icon: 'workflow',
+          kind: 'folder', id: 'os-proc', name: 'Gestion des processus', description: 'Vie, mort et ordonnancement des processus.', color: '#ff6b6b', icon: 'workflow',
           children: [
+            lesson('lifecycle', 'Cycle de vie d’un processus', 'Prêt, Élu, Bloqué : comment un processus partage le processeur.', '#5eead4', 'workflow', 'lifecycle'),
             lesson('sched', 'Ordonnancement des processus', 'FCFS, SJF et Round Robin : qui passe sur le processeur, et pourquoi ?', '#ff6b6b', 'timer', 'scheduling'),
             lesson('threads', 'Processus et threads', 'Ce que partagent (ou non) les flux d’exécution.', '#ffb84d', 'branch'),
             lesson('deadlock', 'Interblocages', 'Quand tout le monde attend tout le monde.', '#f472b6', 'shield'),

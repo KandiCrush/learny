@@ -51,6 +51,13 @@ const PAUSE: Record<string, number> = { ',': 0.22, ';': 0.3, ':': 0.35, '.': 0.6
 
 const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim()
 
+/** Durée (en secondes) estimée de la lecture d'un texte : sert de durée provisoire tant que le MP3 n'existe pas */
+export function estimateSeconds(text: string): number {
+  let t = 0
+  for (const w of text.trim().split(/\s+/)) t += spoken(w) / LETTERS_PER_SEC + (PAUSE[w.slice(-1)] ?? 0)
+  return Math.round(t * 10) / 10 + 1.2
+}
+
 const cache = new Map<string, Timeline>()
 
 export function buildTimeline(text: string, duration: number, sync: Sync[] = []): Timeline {

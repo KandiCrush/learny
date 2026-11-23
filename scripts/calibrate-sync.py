@@ -12,8 +12,10 @@ c'est ce qui permet d'ouvrir un chapitre à la bonne seconde. Entre deux repère
 import array, json, math, os, re, subprocess, sys, tempfile, wave
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-AUDIO = os.path.join(ROOT, 'public/audio/scheduling')
-OUT = os.path.join(ROOT, 'src/lessons/scheduling/sync.generated.ts')
+# cours ciblé : `--lesson=<id>` (dossier src/lessons/<id>/ et public/audio/<id>/) ; « scheduling » par défaut
+LESSON = next((a.split('=', 1)[1] for a in sys.argv if a.startswith('--lesson=')), 'scheduling')
+AUDIO = os.path.join(ROOT, f'public/audio/{LESSON}')
+OUT = os.path.join(ROOT, f'src/lessons/{LESSON}/sync.generated.ts')
 REPORT = '--report' in sys.argv
 
 LETTERS_PER_SEC = 14.0
@@ -51,7 +53,7 @@ def spoken(w):
 
 
 def node_json(expr):
-    code = f"import('./src/lessons/scheduling/narration.ts').then(m=>console.log(JSON.stringify({expr})))"
+    code = f"import('./src/lessons/{LESSON}/narration.ts').then(m=>console.log(JSON.stringify({expr})))"
     return json.loads(subprocess.check_output(['node', '--input-type=module', '-e', code], cwd=ROOT, text=True))
 
 

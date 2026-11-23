@@ -65,6 +65,16 @@ export interface Scene {
   render: (ctx: SceneContext) => ReactNode
 }
 
+/** Une définition du lexique d'une leçon (affichée par le bouton « Lexique », voir components/LexiconMenu.tsx) */
+export interface LexiconEntry {
+  /** le mot défini */
+  term: string
+  /** définition courte, en une ou deux phrases, sans autre mot à définir */
+  definition: string
+  /** variantes ou mots proches, utilisés par la recherche (« ready », « en exécution »…) */
+  aliases?: string[]
+}
+
 export interface Lesson {
   id: string
   title: string
@@ -72,4 +82,6 @@ export interface Lesson {
   scenes: Scene[]
   /** Composant du mode Exploration (simulation manipulable) */
   Explore: ComponentType
+  /** Lexique de la leçon (facultatif) : le bouton « Lexique » n'apparaît que s'il est renseigné */
+  lexicon?: LexiconEntry[]
 }

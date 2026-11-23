@@ -9,6 +9,7 @@ import { buildTimeline } from '../lib/narration'
 import { useSoundCues } from '../hooks/useSoundCues'
 import { SoundMenu } from './SoundMenu'
 import { FolderButton } from './FolderButton'
+import { LexiconMenu } from './LexiconMenu'
 import { type Mode, ModeSwitch } from './ModeSwitch'
 import { d, soften } from '../lib/motion'
 import { readSession, writeSession } from '../lib/session'
@@ -101,13 +102,16 @@ export function LessonView({ lesson, onOpenLibrary, onHome }: { lesson: Lesson; 
         <div className="flex-1" />
         <ModeSwitch mode={mode} pending={switching ? target : null} onChange={changeMode} />
         <div className="flex-1" />
-        {mode === 'explain' && (
-          <div className="flex gap-1.5">
-            <SoundMenu />
-            <button className="icon-btn" data-active={captions} onClick={() => setCaptions((c) => !c)} aria-label="Sous-titres" title="Sous-titres"><CaptionsIcon size={18} /></button>
-            <button className="icon-btn" data-active={transcript} onClick={() => setTranscript((c) => !c)} aria-label="Texte de narration" title="Texte de narration"><FileText size={18} /></button>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5">
+          {lesson.lexicon?.length ? <LexiconMenu entries={lesson.lexicon} /> : null}
+          {mode === 'explain' && (
+            <>
+              <SoundMenu />
+              <button className="icon-btn" data-active={captions} onClick={() => setCaptions((c) => !c)} aria-label="Sous-titres" title="Sous-titres"><CaptionsIcon size={18} /></button>
+              <button className="icon-btn" data-active={transcript} onClick={() => setTranscript((c) => !c)} aria-label="Texte de narration" title="Texte de narration"><FileText size={18} /></button>
+            </>
+          )}
+        </div>
         <div className="absolute inset-x-0 bottom-0 h-px bg-white/[.06]"><div className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--mint)]" style={{ width: `${overall * 100}%` }} /></div>
       </header>
 

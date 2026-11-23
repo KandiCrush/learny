@@ -16,8 +16,10 @@ src/
   lessons/
     types.ts            Lesson, Scene, Beat (le « contrat » d'une leçon)
     registry.ts         liste des leçons disponibles
-    scheduling/         leçon de démonstration (données, scènes, mode Exploration)
+    scheduling/         leçon « Ordonnancement des processus » (données, scènes, mode Exploration)
+    lifecycle/          leçon « Cycle de vie d'un processus » (scènes, simulation, lexique, narration — pas encore de MP3)
   lib/scheduling.ts     moteur FCFS / SJF / Round Robin (les animations lisent ce calcul)
+  lib/lifecycle.ts      moteur du cycle de vie (états, transitions, refus argumentés) du mode Exploration
   library/              catalogue (catalog.ts) + fenêtre « Finder » (LibraryModal.tsx)
   hooks/useScenePlayer  lecteur de scènes piloté par GSAP (+ branchement audio)
   components/           LessonView, SchedulerMachine, GanttChart, Home, …
@@ -33,6 +35,12 @@ scrubbing et vitesse reviennent à piloter une seule valeur.
 2. Déclarer son chargeur (import dynamique) et ses métadonnées dans `src/lessons/registry.ts`.
 3. La référencer dans `src/library/catalog.ts` avec `lessonId` : elle apparaît dans son dossier.
 
+## Lexique (réutilisable)
+
+Chaque leçon peut exposer `lexicon: LexiconEntry[]` (`{ term, definition, aliases? }`, voir `src/lessons/types.ts`).
+Si le tableau est renseigné, le bouton « Lexique » apparaît dans l'en-tête, en mode Explication comme en Exploration
+(`src/components/LexiconMenu.tsx`, popover avec recherche au-delà de 5 termes). Exemple : `src/lessons/lifecycle/lexicon.ts`.
+
 ## Voix (ElevenLabs, modèle Eleven v3)
 
 **Un seul MP3 pour tout le cours** : `public/audio/scheduling/cours-ordonnancement.mp3`. Chaque `Scene` en occupe une
@@ -40,8 +48,8 @@ plage de temps (`scene.audio = { src, from, to }`, calculée automatiquement). L
 bulles et sons suivent la voix. Passer d'une scène à la suivante ne coupe pas la voix, et un clic sur un chapitre saute à sa
 seconde dans le fichier. Sans MP3, le cours se joue en silence avec des durées simulées.
 
-1. **Texte** : la source unique est `src/lessons/scheduling/narration.ts` (lignes de narration + Audio Tags).
-   `npm run audio:scripts` écrit **le texte du cours entier** à coller en une fois dans ElevenLabs
+1. **Texte** : la source unique est `src/lessons/<cours>/narration.ts` (lignes de narration + Audio Tags).
+   `npm run audio:scripts` (ou `npm run audio:scripts -- lifecycle` pour un autre cours) écrit **le texte du cours entier** à coller en une fois dans ElevenLabs
    (`docs/audio-scripts-generated.md`, limite de 5 000 caractères vérifiée).
 2. **Génération** : un seul export MP3, à enregistrer sous le nom ci-dessus. Si la voix prononce un tag à voix haute,
    retirez-le dans `TAGS` (`narration.ts`).
@@ -49,6 +57,7 @@ seconde dans le fichier. Sans MP3, le cours se joue en silence avec des durées 
    ```bash
    python3 scripts/calibrate-sync.py            # écrit src/lessons/scheduling/sync.generated.ts
    python3 scripts/calibrate-sync.py --report   # diagnostic seul
+   python3 scripts/calibrate-sync.py --lesson=lifecycle   # autre cours (src/lessons/<id>/, public/audio/<id>/)
    ```
    L'outil mesure les silences du MP3 et les aligne sur les ponctuations du script (macOS, `afconvert`). Il en déduit la plage
    de chaque scène et des repères « ce mot commence à tant de secondes ». Ne modifiez pas `sync.generated.ts` à la main.

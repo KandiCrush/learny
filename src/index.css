@@ -214,3 +214,13 @@ body {
 }
 
 .lib-window:focus-visible { outline: none; }
+
+/* jetons cliquables du mode Exploration */
+.token-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 16px; }
+.token-btn:hover rect:nth-of-type(3) { stroke-width: 2.4; }
+
+/* mode Exploration du cycle de vie : action refusée (remue) et boutons d'action « impossibles pour l'instant » */
+.shake { animation: shake 0.42s cubic-bezier(.36, .07, .19, .97); }
+@keyframes shake { 10%, 90% { transform: translateX(-1px); } 20%, 80% { transform: translateX(2px); } 30%, 50%, 70% { transform: translateX(-4px); } 40%, 60% { transform: translateX(4px); } }
+.seg[data-dim='true'] { opacity: 0.5; }
+.seg[data-dim='true']:hover { opacity: 0.8; }

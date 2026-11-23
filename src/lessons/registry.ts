@@ -11,11 +11,13 @@ import type { Lesson } from './types'
  */
 const loaders: Record<string, () => Promise<Lesson>> = {
   scheduling: () => import('./scheduling').then((m) => m.schedulingLesson),
+  lifecycle: () => import('./lifecycle').then((m) => m.lifecycleLesson),
 }
 
 /** Métadonnées légères, disponibles sans charger la leçon (bibliothèque, accueil) */
 export const lessonMeta: Record<string, { scenes: number; minutes: number }> = {
   scheduling: { scenes: 7, minutes: 3 },
+  lifecycle: { scenes: 6, minutes: 3 },
 }
 
 const cache = new Map<string, Lesson>()
